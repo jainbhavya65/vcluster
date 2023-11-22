@@ -150,6 +150,44 @@ func (s *persistentVolumeSyncer) Sync(ctx *synccontext.SyncContext, pObj client.
 		return ctrl.Result{}, ctx.VirtualClient.Delete(ctx.Context, vObj)
 	}
 
+	if !equality.Semantic.DeepEqual(vPersistentVolume.Spec.PersistentVolumeReclaimPolicy, pPersistentVolume.Spec.PersistentVolumeReclaimPolicy) {
+		pPersistentVolume.Spec.PersistentVolumeReclaimPolicy = vPersistentVolume.Spec.PersistentVolumeReclaimPolicy
+		err = ctx.PhysicalClient.Update(ctx.Context, pPersistentVolume)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if !equality.Semantic.DeepEqual(vPersistentVolume.Spec.ClaimRef, pPersistentVolume.Spec.ClaimRef) {
+		if vPersistentVolume.Spec.ClaimRef == nil {
+			vP := &corev1.PersistentVolumeClaim{}
+			pvc := types.NamespacedName{
+				Name:      pPersistentVolume.Spec.ClaimRef.Name,
+				Namespace: pPersistentVolume.Spec.ClaimRef.Namespace,
+			}
+			err = ctx.PhysicalClient.Get(ctx.Context, pvc, vP)
+			if err != nil {
+				if !kerrors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				} else {
+					updated := pPersistentVolume.DeepCopy()
+					updated.Spec.ClaimRef = nil
+					updated.Status.Phase = corev1.VolumeAvailable
+					err = ctx.PhysicalClient.Update(ctx.Context, updated)
+					if err != nil {
+						return ctrl.Result{}, err
+					}
+					vPersistentVolume.Status.Phase = corev1.VolumeAvailable
+					er := ctx.VirtualClient.Update(ctx.Context, vPersistentVolume)
+					if er != nil {
+						return ctrl.Result{}, er
+					}
+				}
+			}
+
+		}
+	}
+
 	// check if there is a corresponding virtual pvc
 	updatedObj := s.translateUpdateBackwards(vPersistentVolume, pPersistentVolume, vPvc)
 	if updatedObj != nil {

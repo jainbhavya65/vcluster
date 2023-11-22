@@ -54,7 +54,7 @@ func (s *persistentVolumeSyncer) translateUpdateBackwards(vPv *corev1.Persistent
 	// build virtual persistent volume
 	translatedSpec := *pPv.Spec.DeepCopy()
 	isStorageClassCreatedOnVirtual, isClaimRefCreatedOnVirtual := false, false
-	if vPvc != nil {
+	if vPvc != nil && vPv.Spec.ClaimRef != nil {
 		translatedSpec.ClaimRef.ResourceVersion = vPvc.ResourceVersion
 		translatedSpec.ClaimRef.UID = vPvc.UID
 		translatedSpec.ClaimRef.Name = vPvc.Name
@@ -86,8 +86,10 @@ func (s *persistentVolumeSyncer) translateUpdateBackwards(vPv *corev1.Persistent
 
 	// check claim ref. Do not copy, if it was created on virtual.
 	if !equality.Semantic.DeepEqual(vPv.Spec.ClaimRef, translatedSpec.ClaimRef) && !isClaimRefCreatedOnVirtual {
-		updated = translator.NewIfNil(updated, vPv)
-		updated.Spec.ClaimRef = translatedSpec.ClaimRef
+		if pPv.Status.Phase != corev1.VolumeAvailable {
+			updated = translator.NewIfNil(updated, vPv)
+			updated.Spec.ClaimRef = translatedSpec.ClaimRef
+		}
 	}
 
 	// check pv size
